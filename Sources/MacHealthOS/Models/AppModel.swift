@@ -74,6 +74,7 @@ final class AppModel {
     private let preferencesStore: PreferencesStore
     private let keychainStore: any SecretStoring
     private let maintenanceService: MaintenanceService
+    private let maintenanceStateStore: MaintenanceStateStore
     private let aiExplanationService: AIExplanationService
     private let ollamaModelDiscoveryService: OllamaModelDiscoveryService
 
@@ -87,6 +88,7 @@ final class AppModel {
         preferencesStore: PreferencesStore = PreferencesStore(),
         keychainStore: any SecretStoring = KeychainStore(),
         maintenanceService: MaintenanceService = MaintenanceService(),
+        maintenanceStateStore: MaintenanceStateStore = MaintenanceStateStore(),
         aiExplanationService: AIExplanationService = AIExplanationService(),
         ollamaModelDiscoveryService: OllamaModelDiscoveryService = OllamaModelDiscoveryService()
     ) {
@@ -99,6 +101,7 @@ final class AppModel {
         self.preferencesStore = preferencesStore
         self.keychainStore = keychainStore
         self.maintenanceService = maintenanceService
+        self.maintenanceStateStore = maintenanceStateStore
         self.aiExplanationService = aiExplanationService
         self.ollamaModelDiscoveryService = ollamaModelDiscoveryService
 
@@ -115,10 +118,12 @@ final class AppModel {
         discoveredOllamaModels = []
 
         let machine = systemProfileProvider.snapshot()
-        currentReport = HealthReport.placeholder(
+        var report = HealthReport.placeholder(
             machine: machine,
             lastStatusMessage: "Ready. No checks have been run yet."
         )
+        report.applyMaintenanceState(maintenanceStateStore.load())
+        currentReport = report
     }
 
     var healthScore: String {
@@ -855,6 +860,12 @@ final class AppModel {
                 self.latestScanTimestamp = runDate
                 self.isAnalyzing = false
 
+                if let state = try? self.maintenanceStateStore.recordSuccessfulReadOnlyScan(at: runDate) {
+                    self.currentReport.applyMaintenanceState(state)
+                } else {
+                    self.currentReport.lastReadOnlyHealthScanAt = runDate
+                }
+
                 let issueCount =
                     storageResult.diagnostics.issues.count +
                     performanceResult.diagnostics.issues.count +
@@ -922,10 +933,6 @@ final class AppModel {
     ) {
         invalidateAIExplanation()
 
-        if let lastMaintenanceDate {
-            currentReport.lastMaintenanceDate = lastMaintenanceDate
-        }
-
         let record = MaintenanceActionRecord(
             kind: definition.kind,
             title: definition.title,
@@ -937,6 +944,26 @@ final class AppModel {
             details: details
         )
         currentReport.maintenanceActions.insert(record, at: 0)
+
+        // Only successful approved remediations update maintenance freshness.
+        // Open/manual/failed actions must not be classified as completed maintenance.
+        let isApprovedRemediationSuccess =
+            lastMaintenanceDate != nil &&
+            result == .completed
+
+        if isApprovedRemediationSuccess, let lastMaintenanceDate {
+            let summary = "\(definition.title): \(details)"
+            if let state = try? maintenanceStateStore.recordApprovedMaintenance(
+                summary: summary,
+                at: lastMaintenanceDate
+            ) {
+                currentReport.applyMaintenanceState(state)
+            } else {
+                currentReport.lastApprovedMaintenanceAt = lastMaintenanceDate
+                currentReport.lastMaintenanceDate = lastMaintenanceDate
+                currentReport.lastMaintenanceSummary = summary
+            }
+        }
 
         lastStatusMessage = timestampedMessage(details)
         currentReport.lastStatusMessage = lastStatusMessage

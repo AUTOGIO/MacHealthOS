@@ -104,7 +104,7 @@ import Testing
     #expect(markdown.contains("Available free space is below the preferred threshold."))
 
     let jsonObject = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: files.jsonURL)) as? [String: Any])
-    #expect(jsonObject["schemaVersion"] as? Int == 1)
+    #expect(jsonObject["schemaVersion"] as? Int == 2)
     let reportObject = try #require(jsonObject["report"] as? [String: Any])
     #expect((reportObject["generatedAt"] as? String)?.contains(".") == true)
     let aiExplanationObject = try #require(reportObject["aiExplanation"] as? [String: Any])

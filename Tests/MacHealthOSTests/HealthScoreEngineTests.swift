@@ -143,6 +143,54 @@ import Testing
     ])
 }
 
+@Test func placeholderReportMarksMaintenanceUnknownWithoutHistory() async throws {
+    let report = HealthReport.placeholder(generatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+    let evaluation = HealthScoreEngine.default.evaluate(report)
+    let maintenance = try #require(evaluation.components.first { $0.category == .maintenance })
+
+    #expect(maintenance.status == .unknown)
+    #expect(maintenance.explanation.contains("no scan or approved maintenance timestamp recorded"))
+}
+
+@Test func successfulScanWithoutRemediationIsHealthyMaintenance() async throws {
+    let generatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+    let report = HealthReport(
+        generatedAt: generatedAt,
+        storage: StorageDiagnostics(status: .healthy),
+        performance: PerformanceDiagnostics(status: .healthy),
+        security: SecurityDiagnostics(status: .healthy),
+        automation: AutomationDiagnostics(status: .healthy),
+        lastReadOnlyHealthScanAt: generatedAt
+    )
+    let evaluation = HealthScoreEngine.default.evaluate(report)
+    let maintenance = try #require(evaluation.components.first { $0.category == .maintenance })
+
+    #expect(maintenance.status == .healthy)
+    #expect(maintenance.rawScore == 100)
+    #expect(evaluation.overallScore == 100)
+    #expect(evaluation.overallStatus == .healthy)
+    #expect(!evaluation.topIssues.contains { $0.category == .maintenance })
+}
+
+@Test func approvedMaintenanceFreshnessStillAgesCorrectly() async throws {
+    let generatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+    let report = HealthReport(
+        generatedAt: generatedAt,
+        storage: StorageDiagnostics(status: .healthy),
+        performance: PerformanceDiagnostics(status: .healthy),
+        security: SecurityDiagnostics(status: .healthy),
+        automation: AutomationDiagnostics(status: .healthy),
+        lastReadOnlyHealthScanAt: generatedAt,
+        lastApprovedMaintenanceAt: generatedAt.addingTimeInterval(-30 * 86_400),
+        lastMaintenanceSummary: "Empty Trash: Removed 3 items."
+    )
+    let evaluation = HealthScoreEngine.default.evaluate(report)
+    let maintenance = try #require(evaluation.components.first { $0.category == .maintenance })
+
+    #expect(maintenance.status == .warning)
+    #expect(evaluation.topIssues.contains { $0.title == "Maintenance is getting stale" })
+}
+
 @Test func recommendationSerializesCleanly() async throws {
     let recommendation = MaintenanceRecommendation(
         title: "Review login items",

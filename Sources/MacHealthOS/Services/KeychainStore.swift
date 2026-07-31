@@ -65,6 +65,7 @@ struct KeychainStore: SecretStoring {
 
         let attributes: [CFString: Any] = [
             kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
 
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
@@ -78,6 +79,7 @@ struct KeychainStore: SecretStoring {
 
         var addQuery = query
         addQuery[kSecValueData] = data
+        addQuery[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw Error.unexpectedStatus(addStatus)

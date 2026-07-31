@@ -76,6 +76,10 @@ struct StorageDiagnosticsCollector: Sendable {
 
     private static let gibibyte: Int64 = 1_073_741_824
 
+    private static let excludedDirectoryNames: Set<String> = [
+        ".git", "node_modules", "DerivedData", ".build", "Pods", ".cache", "dist", "vendor", ".venv"
+    ]
+
     let configuration: Configuration
 
     init(configuration: Configuration = Configuration()) {
@@ -285,7 +289,7 @@ struct StorageDiagnosticsCollector: Sendable {
                     continue
                 }
 
-                if entryURL.lastPathComponent == "Library" {
+                if entryURL.lastPathComponent == "Library" || StorageDiagnosticsCollector.excludedDirectoryNames.contains(entryURL.lastPathComponent) {
                     continue
                 }
 
@@ -325,6 +329,7 @@ struct StorageDiagnosticsCollector: Sendable {
         scanErrors: inout [StorageDiagnostics.ScanError]
     ) -> [StorageDiagnostics.FileFinding] {
         let keys: Set<URLResourceKey> = [
+            .isDirectoryKey,
             .isRegularFileKey,
             .isSymbolicLinkKey,
             .fileSizeKey,
@@ -366,6 +371,13 @@ struct StorageDiagnosticsCollector: Sendable {
                 if values.isSymbolicLink == true {
                     enumerator.skipDescendants()
                     continue
+                }
+
+                if values.isDirectory == true {
+                    if StorageDiagnosticsCollector.excludedDirectoryNames.contains(fileURL.lastPathComponent) {
+                        enumerator.skipDescendants()
+                        continue
+                    }
                 }
 
                 if values.isRegularFile == true, let finding = makeFinding(for: fileURL, resourceValues: values) {

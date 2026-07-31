@@ -168,7 +168,8 @@ import Testing
         configuration: SecurityDiagnosticsCollector.Configuration(
             commandTimeout: 0.5,
             softwareUpdateTimeout: 0.5,
-            fixedMacOSVersion: "macOS 26.6"
+            fixedMacOSVersion: "macOS 26.6",
+            xprotectBundleURL: URL(fileURLWithPath: "/nonexistent")
         ),
         commandRunner: SecurityStubCommandRunner { command, arguments, _ in
             .failure(command, arguments: arguments, standardError: "permission denied")

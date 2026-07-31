@@ -17,8 +17,8 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build --scratch-path /tmp/machealthos-build
+BUILD_BINARY="$(swift build --scratch-path /tmp/machealthos-build --show-bin-path)/${APP_NAME}"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"

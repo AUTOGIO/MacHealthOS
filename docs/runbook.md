@@ -110,6 +110,11 @@ If the app does not launch:
 - Run `./scripts/build_and_run.sh --verify`.
 - Check that the built app bundle exists under `dist/`.
 
+If you get code signing errors:
+
+- If you see `resource fork, Finder information, or similar detritus not allowed` or `CodeSign failed with a nonzero exit code`, this is likely because the project resides in an iCloud-synced directory (Desktop/Documents).
+- Run tests via `./scripts/test.sh` and build/run via `./scripts/build_and_run.sh`. These use a custom scratch path `/tmp/machealthos-build` that is not synced by iCloud, bypassing the signing issue.
+
 If diagnostics stay `Unknown`:
 
 - Run `Analyze My Mac` again.

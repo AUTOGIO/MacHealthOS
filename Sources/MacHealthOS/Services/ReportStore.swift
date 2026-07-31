@@ -44,7 +44,7 @@ struct ReportStore {
         try renderMarkdown(for: report).write(to: markdownURL, atomically: true, encoding: .utf8)
 
         let payload = PersistedHealthReport(
-            schemaVersion: 1,
+            schemaVersion: 2,
             report: report,
             scoreSummary: report.scoreSummary
         )
@@ -158,6 +158,7 @@ struct ReportStore {
             markdownPerformanceSection(report.performance),
             markdownSecuritySection(report.security),
             markdownAutomationSection(report.automation),
+            markdownMaintenanceFreshnessSection(report),
             markdownRecommendationsSection(report.recommendations),
             markdownMaintenanceActionsSection(report.maintenanceActions),
             markdownAIExplanationSection(report.aiExplanation),
@@ -301,6 +302,18 @@ struct ReportStore {
         lines.append(contentsOf: diagnostics.commandFailures.prefix(5).flatMap(markdownCommandFailureLines))
 
         return lines.joined(separator: "\n")
+    }
+
+    private func markdownMaintenanceFreshnessSection(_ report: HealthReport) -> String {
+        let scanText = report.lastReadOnlyHealthScanAt.map { TimestampFormatter.iso8601String(from: $0) } ?? "null"
+        let maintenanceText = report.lastApprovedMaintenanceAt.map { TimestampFormatter.iso8601String(from: $0) } ?? "null"
+        return """
+        ## Maintenance Freshness
+
+        - Last Read-Only Health Scan: \(scanText)
+        - Last Approved Maintenance: \(maintenanceText)
+        - Last Maintenance Summary: \(report.lastMaintenanceSummary)
+        """
     }
 
     private func markdownRecommendationsSection(_ recommendations: [MaintenanceRecommendation]) -> String {

@@ -75,6 +75,36 @@ private let gibibyte: Int64 = 1_073_741_824
     #expect(result.diagnostics.issues.contains(where: { $0.title == "Some storage metrics are unavailable" }))
 }
 
+@Test func storageCollectorSkipsExcludedDirectories() async throws {
+    let fixture = try StorageFixture()
+    defer { fixture.cleanup() }
+
+    // Large file inside a non-excluded directory should be reported
+    try fixture.writeFile(relativePath: "Documents/clean-project/large-file.mov", size: 6_000)
+
+    // Large files inside excluded directories should be skipped
+    try fixture.writeFile(relativePath: "Documents/dirty-project/node_modules/bad-dep/large-dependency.js", size: 8_000)
+    try fixture.writeFile(relativePath: "Documents/dirty-project/.git/objects/pack/large-pack.pack", size: 9_000)
+    try fixture.writeFile(relativePath: "node_modules/ignored-top-level.js", size: 10_000)
+
+    let collector = StorageDiagnosticsCollector(
+        configuration: .init(
+            homeDirectoryURL: fixture.homeDirectoryURL,
+            largeFileThresholdBytes: 4_096,
+            oldDownloadsThresholdDays: 30,
+            maximumReportedLargeFiles: 10,
+            maximumReportedOldDownloads: 10,
+            fixedVolumeMetrics: .init(totalCapacityBytes: 160 * gibibyte, freeCapacityBytes: 30 * gibibyte)
+        )
+    )
+
+    let result = collector.collect(now: fixture.now)
+
+    // Only the clean large file should be reported
+    #expect(result.diagnostics.largeFiles.count == 1)
+    #expect(result.diagnostics.largeFiles.first?.path.hasSuffix("Documents/clean-project/large-file.mov") == true)
+}
+
 private struct StorageFixture {
     let homeDirectoryURL: URL
     let now = Date(timeIntervalSince1970: 1_700_000_000)

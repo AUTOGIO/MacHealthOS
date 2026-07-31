@@ -5,15 +5,18 @@ struct SecurityDiagnosticsCollector: Sendable {
         var commandTimeout: TimeInterval
         var softwareUpdateTimeout: TimeInterval
         var fixedMacOSVersion: String?
+        var xprotectBundleURL: URL
 
         init(
             commandTimeout: TimeInterval = 5.0,
             softwareUpdateTimeout: TimeInterval = 15.0,
-            fixedMacOSVersion: String? = nil
+            fixedMacOSVersion: String? = nil,
+            xprotectBundleURL: URL = URL(fileURLWithPath: "/Library/Apple/System/Library/CoreServices/XProtect.bundle")
         ) {
             self.commandTimeout = commandTimeout
             self.softwareUpdateTimeout = softwareUpdateTimeout
             self.fixedMacOSVersion = fixedMacOSVersion
+            self.xprotectBundleURL = xprotectBundleURL
         }
     }
 
@@ -75,7 +78,7 @@ struct SecurityDiagnosticsCollector: Sendable {
             matchingPrefix: "com.apple.pkg.XProtectPayloads_",
             packageIdentifiers: packageIdentifiers,
             commandFailures: &commandFailures
-        )
+        ) ?? collectFallbackXProtectPayload()
         let xProtectConfigData = collectPackageReceipt(
             matchingPrefix: "com.apple.pkg.XProtectPlistConfigData_",
             packageIdentifiers: packageIdentifiers,
@@ -170,6 +173,46 @@ struct SecurityDiagnosticsCollector: Sendable {
         }
 
         return parsePackageReceipt(combinedOutput(from: result))
+    }
+
+    private func collectFallbackXProtectPayload() -> SecurityDiagnostics.PackageReceipt? {
+        let metaPlistURL = configuration.xprotectBundleURL
+            .appendingPathComponent("Contents")
+            .appendingPathComponent("Resources")
+            .appendingPathComponent("XProtect.meta.plist")
+        
+        guard FileManager.default.fileExists(atPath: metaPlistURL.path) else {
+            return nil
+        }
+        
+        do {
+            let data = try Data(contentsOf: metaPlistURL)
+            guard let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+                return nil
+            }
+            
+            let version: String
+            if let stringVersion = plist["Version"] as? String {
+                version = stringVersion
+            } else if let numberVersion = plist["Version"] as? NSNumber {
+                version = numberVersion.stringValue
+            } else if let intVersion = plist["Version"] as? Int {
+                version = String(intVersion)
+            } else {
+                return nil
+            }
+            
+            let attributes = try FileManager.default.attributesOfItem(atPath: metaPlistURL.path)
+            let installDate = attributes[.modificationDate] as? Date
+            
+            return SecurityDiagnostics.PackageReceipt(
+                packageIdentifier: "com.apple.pkg.XProtectPayloads.fallback",
+                version: version,
+                installDate: installDate
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func collectSoftwareUpdateInfo(

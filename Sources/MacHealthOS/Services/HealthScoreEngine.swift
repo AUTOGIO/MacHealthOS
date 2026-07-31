@@ -30,7 +30,8 @@ struct HealthScoreEngine {
         let securityComponent = scoreSecurity(report.security)
         let automationComponent = scoreAutomation(report.automation)
         let maintenanceComponent = scoreMaintenance(
-            lastMaintenanceDate: report.lastMaintenanceDate,
+            lastApprovedMaintenanceAt: report.lastApprovedMaintenanceAt ?? report.lastMaintenanceDate,
+            lastReadOnlyHealthScanAt: report.lastReadOnlyHealthScanAt,
             generatedAt: report.generatedAt
         )
 
@@ -144,8 +145,16 @@ struct HealthScoreEngine {
         )
     }
 
-    private func scoreMaintenance(lastMaintenanceDate: Date?, generatedAt: Date) -> ScoreComponent {
-        let assessment = maintenanceAssessment(lastMaintenanceDate: lastMaintenanceDate, generatedAt: generatedAt)
+    private func scoreMaintenance(
+        lastApprovedMaintenanceAt: Date?,
+        lastReadOnlyHealthScanAt: Date?,
+        generatedAt: Date
+    ) -> ScoreComponent {
+        let assessment = maintenanceAssessment(
+            lastApprovedMaintenanceAt: lastApprovedMaintenanceAt,
+            lastReadOnlyHealthScanAt: lastReadOnlyHealthScanAt,
+            generatedAt: generatedAt
+        )
 
         return ScoreComponent(
             category: .maintenance,
@@ -235,7 +244,8 @@ struct HealthScoreEngine {
         issues.append(contentsOf: issuesForCategory(.automation, status: report.automation.status, issues: report.automation.issues))
 
         if let maintenanceIssue = maintenanceAssessment(
-            lastMaintenanceDate: report.lastMaintenanceDate,
+            lastApprovedMaintenanceAt: report.lastApprovedMaintenanceAt ?? report.lastMaintenanceDate,
+            lastReadOnlyHealthScanAt: report.lastReadOnlyHealthScanAt,
             generatedAt: report.generatedAt
         ).issue {
             issues.append(maintenanceIssue)
@@ -267,55 +277,72 @@ struct HealthScoreEngine {
         ]
     }
 
-    private func maintenanceAssessment(lastMaintenanceDate: Date?, generatedAt: Date) -> (status: HealthStatus, rawScore: Int, explanation: String, issue: HealthIssue?) {
-        guard let lastMaintenanceDate else {
+    private func maintenanceAssessment(
+        lastApprovedMaintenanceAt: Date?,
+        lastReadOnlyHealthScanAt: Date?,
+        generatedAt: Date
+    ) -> (status: HealthStatus, rawScore: Int, explanation: String, issue: HealthIssue?) {
+        // Approved remediation history drives age-based maintenance freshness when present.
+        if let lastApprovedMaintenanceAt {
+            let daysSinceMaintenance = max(0, Int(generatedAt.timeIntervalSince(lastApprovedMaintenanceAt) / 86_400))
+
+            if daysSinceMaintenance <= 14 {
+                return (
+                    status: .healthy,
+                    rawScore: HealthStatus.healthy.baseScore,
+                    explanation: "Maintenance | last approved maintenance was \(daysSinceMaintenance) day(s) ago",
+                    issue: nil
+                )
+            }
+
+            if daysSinceMaintenance <= 45 {
+                return (
+                    status: .warning,
+                    rawScore: HealthStatus.warning.baseScore,
+                    explanation: "Maintenance | last approved maintenance was \(daysSinceMaintenance) day(s) ago",
+                    issue: HealthIssue(
+                        category: .maintenance,
+                        status: .warning,
+                        title: "Maintenance is getting stale",
+                        explanation: "The last approved maintenance run was \(daysSinceMaintenance) day(s) ago."
+                    )
+                )
+            }
+
             return (
-                status: .unknown,
-                rawScore: HealthStatus.unknown.baseScore,
-                explanation: "Maintenance | no timestamp recorded for safe maintenance activity",
+                status: .critical,
+                rawScore: HealthStatus.critical.baseScore,
+                explanation: "Maintenance | last approved maintenance was \(daysSinceMaintenance) day(s) ago",
                 issue: HealthIssue(
                     category: .maintenance,
-                    status: .unknown,
-                    title: "Maintenance freshness is unknown",
-                    explanation: "No timestamp is available for the last safe maintenance run."
+                    status: .critical,
+                    title: "Maintenance freshness is critical",
+                    explanation: "The last approved maintenance run was \(daysSinceMaintenance) day(s) ago."
                 )
             )
         }
 
-        let daysSinceMaintenance = max(0, Int(generatedAt.timeIntervalSince(lastMaintenanceDate) / 86_400))
-
-        if daysSinceMaintenance <= 14 {
+        // A recent successful read-only scan proves monitoring freshness.
+        // Lack of remediation history is not itself a health fault.
+        if let lastReadOnlyHealthScanAt {
+            let daysSinceScan = max(0, Int(generatedAt.timeIntervalSince(lastReadOnlyHealthScanAt) / 86_400))
             return (
                 status: .healthy,
                 rawScore: HealthStatus.healthy.baseScore,
-                explanation: "Maintenance | last safe maintenance run was \(daysSinceMaintenance) day(s) ago",
+                explanation: "Maintenance | monitoring fresh (last read-only scan \(daysSinceScan) day(s) ago); no approved remediation recorded yet",
                 issue: nil
             )
         }
 
-        if daysSinceMaintenance <= 45 {
-            return (
-                status: .warning,
-                rawScore: HealthStatus.warning.baseScore,
-                explanation: "Maintenance | last safe maintenance run was \(daysSinceMaintenance) day(s) ago",
-                issue: HealthIssue(
-                    category: .maintenance,
-                    status: .warning,
-                    title: "Maintenance is getting stale",
-                    explanation: "The last safe maintenance run was \(daysSinceMaintenance) day(s) ago."
-                )
-            )
-        }
-
         return (
-            status: .critical,
-            rawScore: HealthStatus.critical.baseScore,
-            explanation: "Maintenance | last safe maintenance run was \(daysSinceMaintenance) day(s) ago",
+            status: .unknown,
+            rawScore: HealthStatus.unknown.baseScore,
+            explanation: "Maintenance | no scan or approved maintenance timestamp recorded",
             issue: HealthIssue(
                 category: .maintenance,
-                status: .critical,
-                title: "Maintenance freshness is critical",
-                explanation: "The last safe maintenance run was \(daysSinceMaintenance) day(s) ago."
+                status: .unknown,
+                title: "Maintenance freshness is unknown",
+                explanation: "No timestamp is available for the last read-only health scan or approved maintenance run."
             )
         )
     }
